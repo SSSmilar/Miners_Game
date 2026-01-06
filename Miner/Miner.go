@@ -48,7 +48,7 @@ func (t *StrongMiner) Run(ctx context.Context, OreChan chan<- int64) {
 			return
 		case <-ticker.C:
 			if t.Energy <= 0 {
-				fmt.Println("String miner is RIP")
+				fmt.Println("Strong miner is RIP")
 				return
 			}
 			OreChan <- t.Amount

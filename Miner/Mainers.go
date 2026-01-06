@@ -151,6 +151,7 @@ func (g *Game) BuyEquipmentHandler(w http.ResponseWriter, r *http.Request) error
 		}
 		fmt.Println(request)
 	} else {
+		w.WriteHeader(http.StatusBadRequest)
 		request, err := w.Write([]byte("Not enough money"))
 		if err != nil {
 			fmt.Print(err)
