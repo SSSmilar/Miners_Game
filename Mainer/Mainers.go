@@ -6,24 +6,27 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
 type Game struct {
-	Balance   int64
-	Inventory map[string]bool
-	OreChan   chan int
-	BuyChan   chan BayCatalog.BuyRequest
-	Quit      chan struct{}
+	Balance           int64
+	Inventory         map[string]bool
+	OreChan           chan int
+	BuyChan           chan BayCatalog.BuyRequest
+	Quit              chan struct{}
+	CheckWinCondition func() bool
 }
 
 func NewGame() *Game {
 	return &Game{
-		Balance:   0,
-		Inventory: make(map[string]bool),
-		OreChan:   make(chan int),
-		BuyChan:   make(chan BayCatalog.BuyRequest),
-		Quit:      make(chan struct{}),
+		Balance:           0,
+		Inventory:         make(map[string]bool),
+		OreChan:           make(chan int),
+		BuyChan:           make(chan BayCatalog.BuyRequest),
+		Quit:              make(chan struct{}),
+		CheckWinCondition: func() bool { return false },
 	}
 }
 func (g *Game) StartPassiveIncome(ctx context.Context) {
@@ -40,7 +43,7 @@ func (g *Game) StartPassiveIncome(ctx context.Context) {
 		}
 	}()
 }
-func (g *Game) Run() error {
+func (g *Game) Run() {
 	for {
 		select {
 		case amount := <-g.OreChan:
@@ -50,30 +53,64 @@ func (g *Game) Run() error {
 			if g.Inventory[req.Item] {
 				fmt.Println("Already have this item", req.Item)
 				req.Response <- true
-				return Error.ErrAlreadyHaveItem
+				fmt.Println(Error.ErrAlreadyHaveItem)
+
 			}
 			if g.Balance >= req.Cost {
-				g.Inventory[req.Item] = true
 				g.Balance -= req.Cost
-				fmt.Println("Buy successfully")
+				g.Inventory[req.Item] = true
+				fmt.Printf("Buy  %s!  successfully    remainder %d\n ", req.Item, g.Balance)
+				if g.CheckWinCondition() {
+					fmt.Println("Win Condition")
+					return
+				}
 				req.Response <- true
 			} else {
 				fmt.Println("Not enough")
 				req.Response <- false
-				return Error.ErrNotEnoughMoney
+				fmt.Println(Error.ErrNotEnoughMoney)
+
 			}
 		case <-g.Quit:
 
 			fmt.Println("Game over balance", g.Balance)
-			return nil
+			return
 		}
 	}
 }
 func (g *Game) BuyEquipmentHandler(w http.ResponseWriter, r *http.Request) error {
-	cost := int64(5)
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusBadRequest)
+		return Error.ErrWrongMethod
+	}
+	prefix := "/buy/"
+	productStrOriginal := strings.TrimPrefix(r.URL.Path, prefix)
+	if productStrOriginal == "" {
+		w.WriteHeader(http.StatusNotFound)
+		return Error.ErrInvalidParameters
+	}
+	if strings.Contains(productStrOriginal, "/") {
+		w.WriteHeader(http.StatusBadRequest)
+		return Error.ErrInvalidParameters
+	}
+	productStrClear := strings.ToLower(productStrOriginal)
+
+	price, ok := BayCatalog.Equipments[productStrClear]
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		text, err := w.Write([]byte("Not found " + productStrOriginal))
+		if err != nil {
+			fmt.Println(err)
+			return Error.ErrInvalidVariable
+		}
+		fmt.Println(text)
+		return Error.ErrInvalidParameters
+	}
+
 	answerChan := make(chan bool)
 	req := BayCatalog.BuyRequest{
-		Cost:     cost,
+		Item:     productStrClear,
+		Cost:     price,
 		Response: answerChan,
 	}
 	g.BuyChan <- req

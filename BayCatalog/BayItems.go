@@ -11,3 +11,9 @@ const (
 	ItemVentilation = "ventilation"
 	ItemCart        = "cart"
 )
+
+var Equipments = map[string]int64{
+	"pickaxe":     3000,
+	"ventilation": 15000,
+	"cart":        50000,
+}
