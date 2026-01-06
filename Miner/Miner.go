@@ -9,11 +9,11 @@ import (
 type Miner interface {
 	Run(ctx context.Context, OreChan chan<- int64)
 }
-type BasicMainer struct {
-	Speed      time.Duration
-	Amount     int64
-	Energy     int
-	typeMainer string
+type BasicMiner struct {
+	Speed     time.Duration
+	Amount    int64
+	Energy    int
+	MinerType string
 }
 type StrongMiner struct {
 	Speed  time.Duration
@@ -21,7 +21,7 @@ type StrongMiner struct {
 	Energy int
 }
 
-func (t *BasicMainer) Run(ctx context.Context, OreChan chan<- int64) {
+func (t *BasicMiner) Run(ctx context.Context, OreChan chan<- int64) {
 	ticker := time.NewTicker(t.Speed)
 	defer ticker.Stop()
 	for {
@@ -30,7 +30,7 @@ func (t *BasicMainer) Run(ctx context.Context, OreChan chan<- int64) {
 			return
 		case <-ticker.C:
 			if t.Energy <= 0 {
-				fmt.Printf("%s mainer is out of energy ", t.typeMainer)
+				fmt.Printf("%s mainer is out of energy ", t.MinerType)
 				return
 			}
 			OreChan <- t.Amount
@@ -57,20 +57,20 @@ func (t *StrongMiner) Run(ctx context.Context, OreChan chan<- int64) {
 		}
 	}
 }
-func NewTinyMiner() *BasicMainer {
-	return &BasicMainer{
-		Speed:      3 * time.Second,
-		Amount:     1,
-		Energy:     30,
-		typeMainer: "tiny",
+func NewTinyMiner() *BasicMiner {
+	return &BasicMiner{
+		Speed:     3 * time.Second,
+		Amount:    1,
+		Energy:    30,
+		MinerType: "tiny",
 	}
 }
-func NewMediumMiner() *BasicMainer {
-	return &BasicMainer{
-		Speed:      2 * time.Second,
-		Amount:     3,
-		Energy:     45,
-		typeMainer: "medium",
+func NewMediumMiner() *BasicMiner {
+	return &BasicMiner{
+		Speed:     2 * time.Second,
+		Amount:    3,
+		Energy:    45,
+		MinerType: "medium",
 	}
 }
 func NewStrongMiner() *StrongMiner {

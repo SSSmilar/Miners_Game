@@ -1,4 +1,4 @@
-package BayCatalog
+package BuyCatalog
 
 type BuyRequest struct {
 	Item     string

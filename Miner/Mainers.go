@@ -1,7 +1,7 @@
 package Miner
 
 import (
-	"MainerCoal/BayCatalog"
+	"MainerCoal/BuyCatalog"
 	"MainerCoal/Error"
 	"context"
 	"fmt"
@@ -14,8 +14,8 @@ type Game struct {
 	Balance           int64
 	Inventory         map[string]bool
 	OreChan           chan int64
-	BuyChan           chan BayCatalog.BuyRequest
-	HireChan          chan BayCatalog.HireRequest
+	BuyChan           chan BuyCatalog.BuyRequest
+	HireChan          chan BuyCatalog.HireRequest
 	Quit              chan struct{}
 	CheckWinCondition func() bool
 }
@@ -25,8 +25,8 @@ func NewGame() *Game {
 		Balance:           0,
 		Inventory:         make(map[string]bool),
 		OreChan:           make(chan int64),
-		BuyChan:           make(chan BayCatalog.BuyRequest),
-		HireChan:          make(chan BayCatalog.HireRequest),
+		BuyChan:           make(chan BuyCatalog.BuyRequest),
+		HireChan:          make(chan BuyCatalog.HireRequest),
 		Quit:              make(chan struct{}),
 		CheckWinCondition: func() bool { return false },
 	}
@@ -46,6 +46,7 @@ func (g *Game) StartPassiveIncome(ctx context.Context) {
 	}()
 }
 func (g *Game) Run(ctx context.Context) {
+	startTime := time.Now()
 	for {
 		select {
 		case amount := <-g.OreChan:
@@ -99,7 +100,8 @@ func (g *Game) Run(ctx context.Context) {
 			}
 
 		case <-g.Quit:
-			fmt.Println("Game over balance", g.Balance)
+			duration := time.Since(startTime)
+			fmt.Printf("Game over  : balance : %d  , play time : %s\n ", g.Balance, duration)
 			return
 		}
 	}
@@ -121,7 +123,7 @@ func (g *Game) BuyEquipmentHandler(w http.ResponseWriter, r *http.Request) error
 	}
 	productStrClear := strings.ToLower(productStrOriginal)
 
-	price, ok := BayCatalog.Equipments[productStrClear]
+	price, ok := BuyCatalog.Equipments[productStrClear]
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 		text, err := w.Write([]byte("Not found " + productStrOriginal))
@@ -134,7 +136,7 @@ func (g *Game) BuyEquipmentHandler(w http.ResponseWriter, r *http.Request) error
 	}
 
 	answerChan := make(chan bool)
-	req := BayCatalog.BuyRequest{
+	req := BuyCatalog.BuyRequest{
 		Item:     productStrClear,
 		Cost:     price,
 		Response: answerChan,
@@ -176,13 +178,13 @@ func (g *Game) HireHandler(w http.ResponseWriter, r *http.Request) error {
 	}
 	productStrClear := strings.ToLower(productStrOriginal)
 
-	price, ok := BayCatalog.WorkForce[productStrClear]
+	price, ok := BuyCatalog.WorkForce[productStrClear]
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		return Error.ErrInvalidVariable
 	}
 	answerChan := make(chan bool)
-	req := BayCatalog.HireRequest{
+	req := BuyCatalog.HireRequest{
 		MinerType: productStrClear,
 		Cost:      price,
 		Response:  answerChan,
@@ -192,17 +194,16 @@ func (g *Game) HireHandler(w http.ResponseWriter, r *http.Request) error {
 	if isSuccess {
 		text, err := w.Write([]byte("Successful hired " + productStrClear))
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
 			return Error.ErrBadRequest
 		}
 		fmt.Println(text)
 	} else {
+		w.WriteHeader(http.StatusBadRequest)
 		text, err := w.Write([]byte("Not enough money"))
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return Error.ErrNotEnoughMoney
 		}
-		w.WriteHeader(http.StatusBadRequest)
 		fmt.Println(text)
 	}
 	return nil
