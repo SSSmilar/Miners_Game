@@ -1,7 +1,7 @@
 package main
 
 import (
-	"MainerCoal/Mainer"
+	"MainerCoal/Miner"
 	"context"
 	"fmt"
 	"net/http"
@@ -19,7 +19,7 @@ func TransformerHandler(h HandlerWitchError) http.HandlerFunc {
 	}
 }
 func main() {
-	game := Mainer.NewGame()
+	game := Miner.NewGame()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
