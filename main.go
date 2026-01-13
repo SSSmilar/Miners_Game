@@ -5,6 +5,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type HandlerWitchError func(http.ResponseWriter, *http.Request) error
@@ -19,7 +22,16 @@ func TransformerHandler(h HandlerWitchError) http.HandlerFunc {
 	}
 }
 func main() {
-	game := Miner.NewGame()
+	ctxPostgres, ClosePostgress := context.WithCancel(context.Background())
+	url := "postgres://postgres:2976@localhost:5432/postgres"
+	conn, err := pgxpool.New(ctxPostgres, url)
+	if err != nil {
+		fmt.Println("Не могу подключиться к базе ", err)
+		os.Exit(1)
+	}
+	defer ClosePostgress()
+	fmt.Println("Успешное подклчюение")
+	game := Miner.NewGame(conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	ctxMiners, cancelMiners := context.WithCancel(ctx)
 	defer cancelMiners()
@@ -29,6 +41,7 @@ func main() {
 	go game.Run(ctxMiners)
 	http.HandleFunc("/buy/", TransformerHandler(game.BuyEquipmentHandler))
 	http.HandleFunc("/hire/", TransformerHandler(game.HireHandler))
+	http.HandleFunc("/dismiss/", TransformerHandler(game.HandlerDismissMiner))
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		fmt.Println(err)
 	}

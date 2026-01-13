@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Game struct {
@@ -18,9 +20,10 @@ type Game struct {
 	HireChan          chan BuyCatalog.HireRequest
 	Quit              chan struct{}
 	CheckWinCondition func() bool
+	DB                *pgxpool.Pool
 }
 
-func NewGame() *Game {
+func NewGame(db *pgxpool.Pool) *Game {
 	return &Game{
 		Balance:           0,
 		Inventory:         make(map[string]bool),
@@ -29,7 +32,49 @@ func NewGame() *Game {
 		HireChan:          make(chan BuyCatalog.HireRequest),
 		Quit:              make(chan struct{}),
 		CheckWinCondition: func() bool { return false },
+		DB:                db,
 	}
+}
+func (g *Game) HandlerDismissMiner(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != "DELETE" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return Error.ErrWrongMethod
+	}
+	prefix := "/dismiss/"
+	minerName := strings.TrimPrefix(r.URL.Path, prefix)
+	if minerName == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return Error.ErrInvalidParameters
+	}
+	if strings.Contains(minerName, "/") {
+		w.WriteHeader(http.StatusBadRequest)
+		return Error.ErrInvalidParameters
+	}
+	err := g.DissmissMainer(r.Context(), minerName)
+	if err != nil {
+		w.Write([]byte("ошибка " + err.Error()))
+		w.WriteHeader(http.StatusInternalServerError)
+		return nil
+	}
+	w.WriteHeader(http.StatusOK)
+
+	return nil
+}
+func (g *Game) DissmissMainer(ctx context.Context, name string) error {
+	query := `
+			UPDATE mainers 
+			SET deleted_at = NOW()
+			WHERE name = $1 AND deleted_at IS NULL 
+`
+	tag, err := g.DB.Exec(ctx, query, name)
+	if err != nil {
+		return Error.ErrDataBase
+	}
+	if tag.RowsAffected() == 0 {
+		return Error.ErrMinersDB
+	}
+	fmt.Printf("Шахтертёр %s был успешно уволен (Soft Delete)\n", name)
+	return nil
 }
 func (g *Game) StartPassiveIncome(ctx context.Context) {
 	go func() {
@@ -58,7 +103,7 @@ func (g *Game) Run(ctx context.Context) {
 				finalBalance *= 3
 			}
 			g.Balance += finalBalance
-			fmt.Printf("Balance: %d , profit : %d , profit without boosts( %d )", g.Balance, finalBalance, amount)
+			fmt.Printf("Balance: %d , profit : %d , profit without boosts( %d )\n", g.Balance, finalBalance, amount)
 		case req := <-g.BuyChan:
 			if g.Inventory[req.Item] {
 				fmt.Println("Already have this item", req.Item)
