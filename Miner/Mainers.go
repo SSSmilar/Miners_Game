@@ -35,6 +35,17 @@ func NewGame(db *pgxpool.Pool) *Game {
 		DB:                db,
 	}
 }
+func (g *Game) SaveIncome(ctx context.Context, amount int64) error {
+	if amount == 0 {
+		return nil
+	}
+	query := "UPDATE  users SET balance = balance + $1 WHERE id = 1 "
+	if _, err := g.DB.Exec(ctx, query, amount); err != nil {
+		return fmt.Errorf("ошибка сохранения дохода %w ", err)
+	}
+	fmt.Printf("💾 [AUTO-SAVE] Сохранено +%d монет в базу\n", amount)
+	return nil
+}
 func (g *Game) HandlerDismissMiner(w http.ResponseWriter, r *http.Request) error {
 	if r.Method != "DELETE" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -92,6 +103,9 @@ func (g *Game) StartPassiveIncome(ctx context.Context) {
 }
 func (g *Game) Run(ctx context.Context) {
 	startTime := time.Now()
+	var unsavedIncome int64 = 0
+	saveTicker := time.NewTicker(3 * time.Second)
+	defer saveTicker.Stop()
 	for {
 		select {
 		case amount := <-g.OreChan:
@@ -102,9 +116,20 @@ func (g *Game) Run(ctx context.Context) {
 			if g.Inventory["cart"] {
 				finalBalance *= 3
 			}
-			g.Balance += finalBalance
+			unsavedIncome += finalBalance
 			fmt.Printf("Balance: %d , profit : %d , profit without boosts( %d )\n", g.Balance, finalBalance, amount)
+		case <-saveTicker.C:
+			if unsavedIncome > 0 {
+				if err := g.SaveIncome(ctx, unsavedIncome); err != nil {
+					fmt.Println("Ошибка автосейва", err)
+				}
+				unsavedIncome = 0
+			}
 		case req := <-g.BuyChan:
+			if unsavedIncome > 0 {
+				if err := g.SaveIncome(ctx, unsavedIncome); err != nil {
+					fmt.Println("Ошибка сейва при покупке", err)
+			}
 			if g.Inventory[req.Item] {
 				fmt.Println("Already have this item", req.Item)
 				req.Response <- true
@@ -124,7 +149,6 @@ func (g *Game) Run(ctx context.Context) {
 				fmt.Println("Not enough")
 				req.Response <- false
 				fmt.Println(Error.ErrNotEnoughMoney)
-
 			}
 		case req := <-g.HireChan:
 			var initialEnergy int64
