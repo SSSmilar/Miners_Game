@@ -22,14 +22,14 @@ func TransformerHandler(h HandlerWitchError) http.HandlerFunc {
 	}
 }
 func main() {
-	ctxPostgres, ClosePostgress := context.WithCancel(context.Background())
+	ctxPostgres, ClosePostgres := context.WithCancel(context.Background())
 	url := "postgres://postgres:2976@localhost:5432/postgres"
 	conn, err := pgxpool.New(ctxPostgres, url)
 	if err != nil {
 		fmt.Println("Не могу подключиться к базе ", err)
 		os.Exit(1)
 	}
-	defer ClosePostgress()
+	defer ClosePostgres()
 	fmt.Println("Успешное подклчюение")
 	game := Miner.NewGame(conn)
 	ctx, cancel := context.WithCancel(context.Background())

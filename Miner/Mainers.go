@@ -25,7 +25,7 @@ type Game struct {
 
 func NewGame(db *pgxpool.Pool) *Game {
 	return &Game{
-		Balance:           0,
+		Balance:           5000,
 		Inventory:         make(map[string]bool),
 		OreChan:           make(chan int64),
 		BuyChan:           make(chan BuyCatalog.BuyRequest),
@@ -127,23 +127,33 @@ func (g *Game) Run(ctx context.Context) {
 
 			}
 		case req := <-g.HireChan:
-			if g.Balance >= req.Cost {
-				switch req.MinerType {
-				case "tiny":
-					go NewTinyMiner().Run(ctx, g.OreChan)
-				case "medium":
-					go NewMediumMiner().Run(ctx, g.OreChan)
-				case "strong":
-					go NewStrongMiner().Run(ctx, g.OreChan)
-				}
-				g.Balance -= req.Cost
-				fmt.Printf("Hire %s  successfully", req.MinerType)
-				req.Response <- true
-			} else {
-				fmt.Println("Not enough money to hire")
-				req.Response <- false
+			var initialEnergy int64
+			switch req.MinerType {
+			case "tiny":
+				initialEnergy = 30
+			case "medium":
+				initialEnergy = 60
+			case "strong":
+				initialEnergy = 100
 			}
+			minerID, uniqueName, err := g.BuyMinerTx(ctx, req.MinerType, req.Cost, initialEnergy)
+			if err != nil {
+				fmt.Println("Ошибка транзакции", err)
+				req.Response <- false
+				continue
+			}
+			g.Balance -= req.Cost
+			fmt.Printf("✅ Куплен %s (ID: %d). Баланс: %d\n", uniqueName, minerID, g.Balance)
 
+			switch req.MinerType {
+			case "tiny":
+				go NewTinyMiner().Run(ctx, g.OreChan)
+			case "medium":
+				go NewMediumMiner().Run(ctx, g.OreChan)
+			case "strong":
+				go NewStrongMiner().Run(ctx, g.OreChan)
+			}
+			req.Response <- true
 		case <-g.Quit:
 			duration := time.Since(startTime)
 			fmt.Printf("Game over  : balance : %d  , play time : %s\n ", g.Balance, duration)
@@ -253,4 +263,33 @@ func (g *Game) HireHandler(w http.ResponseWriter, r *http.Request) error {
 		fmt.Println(text)
 	}
 	return nil
+}
+func (g *Game) BuyMinerTx(ctx context.Context, mType string, cost int64, energy int64) (int64, string, error) {
+	tx, err := g.DB.Begin(ctx)
+	if err != nil {
+		return 0, "", Error.ErrTransaction
+	}
+	defer tx.Rollback(ctx)
+	var currentBalance int64
+	if err := tx.QueryRow(ctx, "SELECT balance FROM users WHERE id = 1 FOR UPDATE").Scan(&currentBalance); err != nil {
+		return 0, "", Error.ErrRegiments
+	}
+	if currentBalance < cost {
+		return 0, "", Error.ErrNotEnoughMoney
+	}
+	if _, err := tx.Exec(ctx, "UPDATE users SET balance = balance - $1 WHERE id = 1 ", cost); err != nil {
+		return 0, "", fmt.Errorf("База ругается %w", err)
+	}
+	suffix := GenerateRandomString(5)
+	uniqueName := fmt.Sprintf("%s_%s", mType, suffix)
+	var minerID int64
+	err = tx.QueryRow(ctx, `INSERT INTO mainers(name , type , energy ) VALUES($1 , $2 , $3 )RETURNING id`, uniqueName, mType, energy).Scan(&minerID)
+	if err != nil {
+		return 0, "", fmt.Errorf("База ругается %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, "", Error.ErrSaveChange
+	}
+	return minerID, uniqueName, nil
 }
