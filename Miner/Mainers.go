@@ -129,28 +129,37 @@ func (g *Game) Run(ctx context.Context) {
 			if unsavedIncome > 0 {
 				if err := g.SaveIncome(ctx, unsavedIncome); err != nil {
 					fmt.Println("Ошибка сейва при покупке", err)
-			}
-			if g.Inventory[req.Item] {
-				fmt.Println("Already have this item", req.Item)
-				req.Response <- true
-				fmt.Println(Error.ErrAlreadyHaveItem)
-				continue
-			}
-			if g.Balance >= req.Cost {
-				g.Balance -= req.Cost
-				g.Inventory[req.Item] = true
-				fmt.Printf("Buy  %s!  successfully    remainder %d\n ", req.Item, g.Balance)
-				if g.CheckWinCondition() {
-					fmt.Println("Win Condition")
-					return
 				}
-				req.Response <- true
-			} else {
-				fmt.Println("Not enough")
-				req.Response <- false
-				fmt.Println(Error.ErrNotEnoughMoney)
+				if g.Inventory[req.Item] {
+					fmt.Println("Already have this item", req.Item)
+					req.Response <- true
+					fmt.Println(Error.ErrAlreadyHaveItem)
+					continue
+				}
+				if g.Balance >= req.Cost {
+					g.Balance -= req.Cost
+					g.Inventory[req.Item] = true
+					fmt.Printf("Buy  %s!  successfully    remainder %d\n ", req.Item, g.Balance)
+					if g.CheckWinCondition() {
+						fmt.Println("Win Condition")
+						return
+					}
+					req.Response <- true
+				} else {
+					fmt.Println("Not enough")
+					req.Response <- false
+					fmt.Println(Error.ErrNotEnoughMoney)
+				}
 			}
 		case req := <-g.HireChan:
+			if unsavedIncome > 0 {
+				if err := g.SaveIncome(ctx, unsavedIncome); err != nil {
+					fmt.Println("Ошибка сейва при покупке", err)
+					req.Response <- false
+					continue
+				}
+				unsavedIncome = 0
+			}
 			var initialEnergy int64
 			switch req.MinerType {
 			case "tiny":
@@ -179,6 +188,11 @@ func (g *Game) Run(ctx context.Context) {
 			}
 			req.Response <- true
 		case <-g.Quit:
+			if unsavedIncome > 0 {
+				if err := g.SaveIncome(ctx, unsavedIncome); err != nil {
+					fmt.Println("Ошибка при сохронении при выходе ", err)
+				}
+			}
 			duration := time.Since(startTime)
 			fmt.Printf("Game over  : balance : %d  , play time : %s\n ", g.Balance, duration)
 			return
