@@ -21,6 +21,7 @@ type Game struct {
 	Quit              chan struct{}
 	CheckWinCondition func() bool
 	DB                *pgxpool.Pool
+	PerSecond         int64
 }
 
 func NewGame(db *pgxpool.Pool) *Game {
@@ -33,6 +34,7 @@ func NewGame(db *pgxpool.Pool) *Game {
 		Quit:              make(chan struct{}),
 		CheckWinCondition: func() bool { return false },
 		DB:                db,
+		PerSecond:         0,
 	}
 }
 func (g *Game) SaveIncome(ctx context.Context, amount int64) error {
@@ -117,6 +119,7 @@ func (g *Game) Run(ctx context.Context) {
 				finalBalance *= 3
 			}
 			unsavedIncome += finalBalance
+			g.Balance += finalBalance
 			fmt.Printf("Balance: %d , profit : %d , profit without boosts( %d )\n", g.Balance, finalBalance, amount)
 		case <-saveTicker.C:
 			if unsavedIncome > 0 {
@@ -180,11 +183,17 @@ func (g *Game) Run(ctx context.Context) {
 
 			switch req.MinerType {
 			case "tiny":
-				go NewTinyMiner().Run(ctx, g.OreChan)
+				worker := NewTinyMiner()
+				worker.ID = minerID
+				go worker.Run(ctx, g.OreChan, g.DB)
 			case "medium":
-				go NewMediumMiner().Run(ctx, g.OreChan)
+				worker := NewMediumMiner()
+				worker.ID = minerID
+				go worker.Run(ctx, g.OreChan, g.DB)
 			case "strong":
-				go NewStrongMiner().Run(ctx, g.OreChan)
+				worker := NewStrongMiner()
+				worker.ID = minerID
+				go worker.Run(ctx, g.OreChan, g.DB)
 			}
 			req.Response <- true
 		case <-g.Quit:
@@ -321,7 +330,21 @@ func (g *Game) BuyMinerTx(ctx context.Context, mType string, cost int64, energy 
 	suffix := GenerateRandomString(5)
 	uniqueName := fmt.Sprintf("%s_%s", mType, suffix)
 	var minerID int64
-	err = tx.QueryRow(ctx, `INSERT INTO mainers(name , type , energy ) VALUES($1 , $2 , $3 )RETURNING id`, uniqueName, mType, energy).Scan(&minerID)
+	var startAmount int64
+	switch mType {
+	case "tiny":
+		startAmount = 1
+	case "medium":
+		startAmount = 3
+	case "strong":
+		startAmount = 5
+	}
+	insertQuery := `
+        INSERT INTO mainers (name, type, energy, amount) 
+        VALUES ($1, $2, $3, $4) 
+        RETURNING id
+    `
+	err = tx.QueryRow(ctx, insertQuery, uniqueName, mType, energy, startAmount).Scan(&minerID)
 	if err != nil {
 		return 0, "", fmt.Errorf("База ругается %w", err)
 	}
@@ -330,4 +353,52 @@ func (g *Game) BuyMinerTx(ctx context.Context, mType string, cost int64, energy 
 		return 0, "", Error.ErrSaveChange
 	}
 	return minerID, uniqueName, nil
+}
+func (g *Game) RestoreMiners(ctx context.Context) error {
+	query := "SELECT  id , type , energy , amount FROM mainers WHERE deleted_at IS NULL AND energy > 0 "
+	rows, err := g.DB.Query(ctx, query)
+	if err != nil {
+		fmt.Println(err)
+		return Error.ErrDataBase
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var id int64
+		var mType string
+		var energy int64
+		var amount int64
+		if err := rows.Scan(&id, &mType, &energy, &amount); err != nil {
+			fmt.Println(err)
+			return Error.ErrDataBase
+		}
+		switch mType {
+		case "tiny":
+			g.PerSecond += amount
+			miner := NewTinyMiner()
+			miner.ID = id
+			miner.Amount = amount
+			miner.Energy = energy
+			go miner.Run(ctx, g.OreChan, g.DB)
+		case "medium":
+			g.PerSecond += amount
+			miner := NewMediumMiner()
+			miner.ID = id
+			miner.Amount = amount
+			miner.Energy = energy
+			go miner.Run(ctx, g.OreChan, g.DB)
+		case "strong":
+			g.PerSecond += amount
+			miner := NewStrongMiner()
+			miner.ID = id
+			miner.Amount = amount
+			miner.Energy = energy
+			go miner.Run(ctx, g.OreChan, g.DB)
+		}
+		count++
+		if count > 0 {
+			fmt.Printf("♻️  Восстановлено %d шахтеров из базы. Доход: %d/сек\n", count, g.PerSecond)
+		}
+	}
+	return nil
 }

@@ -23,6 +23,7 @@ func TransformerHandler(h HandlerWitchError) http.HandlerFunc {
 }
 func main() {
 	ctxPostgres, ClosePostgres := context.WithCancel(context.Background())
+	ctxRestore, CloseRestore := context.WithCancel(context.Background())
 	url := "postgres://postgres:2976@localhost:5432/postgres"
 	conn, err := pgxpool.New(ctxPostgres, url)
 	if err != nil {
@@ -32,6 +33,13 @@ func main() {
 	defer ClosePostgres()
 	fmt.Println("Успешное подклчюение")
 	game := Miner.NewGame(conn)
+	fmt.Println("Загружаю сохранения")
+	if err := game.RestoreMiners(ctxRestore); err != nil {
+		fmt.Println("Ошибка востановления! ", err)
+		CloseRestore()
+	}
+	defer CloseRestore()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	ctxMiners, cancelMiners := context.WithCancel(ctx)
 	defer cancelMiners()
